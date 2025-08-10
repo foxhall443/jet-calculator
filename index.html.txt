@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Jet Finance Calculator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet" />
+  <style>
+    :root{--bg:#0b0b0b;--card:#121212;--muted:#9aa0a6;--gold:#d4af37;--line:#2a2a2a;}
+    *{box-sizing:border-box}
+    html,body{margin:0;background:var(--bg);color:#fff;font-family:Inter,system-ui,Arial,sans-serif}
+    .wrap{max-width:1400px;margin:0 auto;padding:28px 18px 64px}
+    header{display:flex;gap:10px;align-items:center;margin-bottom:14px}
+    .dot{width:10px;height:10px;border-radius:50%;background:var(--gold);box-shadow:0 0 10px rgba(212,175,55,.6)}
+    h1{margin:0;font-size:24px;font-weight:800}
+    .sub{color:var(--muted)}
+    .panel{background:linear-gradient(180deg,#151515,#0f0f0f);border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:12px}
+    .row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+    label{font-size:12px;color:#9aa0a6;display:block;margin-bottom:6px}
+    input[type="text"]{width:100%;background:#101010;color:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:16px}
+    button{appearance:none;border:1px solid var(--gold);background:var(--gold);color:#000;border-radius:10px;padding:10px 14px;font-weight:700;cursor:pointer}
+    .grid{display:grid;gap:12px}
+    .grid-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+    @media (max-width:1200px){.grid-3{grid-template-columns:1fr}}
+    .muted{color:var(--muted)}
+    .scroll{overflow:auto;border:1px solid var(--line);border-radius:12px}
+    table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+    th,td{border:1px solid var(--line);padding:6px 7px;text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    td.wrap{white-space:normal;word-wrap:break-word;overflow-wrap:break-word}
+    .kpis{display:grid;grid-template-columns: repeat(3, minmax(0,1fr)); gap:12px}
+    .kpi{background:#0f0f0f;border:1px solid var(--line);border-radius:12px;padding:12px}
+    .kpi .label{color:#9aa0a6;font-size:12px}
+    .kpi .value{font-size:22px;font-weight:800;margin-top:4px}
+    .diag{font-size:12px;color:#9aa0a6;margin-top:6px}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="dot"></div>
+      <div>
+        <h1>Jet Finance Calculator</h1>
+        <div class="sub">Edit the 3 inputs below. “Cheat Code!B7:M34” is shown (A & N hidden; rows 1–6 hidden). IRR from U7:U27 is written to J29.</div>
+      </div>
+    </header>
+
+    <!-- Inputs G2:G4 -->
+    <section class="panel">
+      <div class="grid grid-3">
+        <div>
+          <label for="G2">Approximate Taxable Income (G2)</label>
+          <input id="G2" type="text" placeholder="e.g. 5,000,000" />
+        </div>
+        <div>
+          <label for="G3">Expected Annual Income Growth (G3)</label>
+          <input id="G3" type="text" placeholder="e.g. 8% or 0.08" />
+        </div>
+        <div>
+          <label for="G4">Investments Outside Retirement Not Collateralized (G4)</label>
+          <input id="G4" type="text" placeholder="e.g. 20,000,000" />
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <button id="applyBtn">Apply & Recalculate</button>
+        <span class="muted">Auto-applies when you stop typing for 600ms.</span>
+      </div>
+      <div class="diag" id="diag"></div>
+    </section>
+
+    <!-- KPIs -->
+    <section class="panel">
+      <div class="kpis">
+        <div class="kpi">
+          <div class="label">IRR (written to J29)</div>
+          <div id="kpiIrr" class="value">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">J29 (displayed)</div>
+          <div id="kpiJ29" class="value">—</div>
+        </div>
+        <div class="kpi">
+          <div class="label">Expected Annual Income Growth (G3)</div>
+          <div id="kpiG3" class="value">—</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Table: B7:M34 -->
+    <section class="panel">
+      <div class="row" style="justify-content:space-between;align-items:baseline">
+        <h3 style="margin:0">Output (Cheat Code!B7:M34)</h3>
+        <span class="muted">Wide layout, wrapped headings (row 7), currency shown with $ and no decimals.</span>
+      </div>
+      <div id="rangeBox" class="scroll" style="margin-top:10px"></div>
+    </section>
+  </div>
+
+  <!-- SheetJS and HyperFormula -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hyperformula/dist/hyperformula.full.min.js"></script>
+
+  <script>
+    const ACTIVE_SHEET_NAME = "Cheat Code";
+    const OUTPUT_START = "B7";
+    const OUTPUT_END   = "M34";
+    const IRR_RANGE_START = "U7";
+    const IRR_RANGE_END   = "U27";
+    const J29_CELL = "J29";
+
+    const g2El = document.getElementById('G2');
+    const g3El = document.getElementById('G3');
+    const g4El = document.getElementById('G4');
+    const kpiIrr = document.getElementById('kpiIrr');
+    const kpiJ29 = document.getElementById('kpiJ29');
+    const kpiG3  = document.getElementById('kpiG3');
+    const applyBtn = document.getElementById('applyBtn');
+    const box = document.getElementById('rangeBox');
+    const diag = document.getElementById('diag');
+
+    let hf = null;
+
+    // A1 helpers
+    function a1ToRC(a1){
+      const m = /^([A-Za-z]+)(\d+)$/.exec(a1);
+      if(!m) throw new Error("Bad A1: "+a1);
+      const colLetters = m[1].toUpperCase();
+      const row = parseInt(m[2],10) - 1;
+      let col = 0;
+      for (let i=0;i<colLetters.length;i++){
+        col = col*26 + (colLetters.charCodeAt(i)-64);
+      }
+      col -= 1;
+      return {row, col};
+    }
+    function rangeA1ToRC(start,end){
+      const s = a1ToRC(start), e = a1ToRC(end);
+      return {sRow:s.row, sCol:s.col, eRow:e.row, eCol:e.col};
+    }
+
+    // Formatting
+    const fmtMoney = (x) => (x==null || isNaN(Number(x))) ? "" : ("$" + Math.round(Number(x)).toLocaleString());
+    const fmtPct1  = (x) => (x==null || isNaN(Number(x))) ? "" : ((Number(x)*100).toFixed(1) + "%");
+
+    function smartParse(x){
+      if (x == null || x === "") return null;
+      let s = String(x).trim();
+      const percent = s.endsWith('%');
+      s = s.replace(/,/g,'');
+      let num = Number(s.replace('%',''));
+      if (isNaN(num)) return s;
+      if (percent) num = num / 100;
+      return num;
+    }
+
+    function getCell(a1){
+      const sheetId = hf.getSheetId(ACTIVE_SHEET_NAME);
+      const {row,col} = a1ToRC(a1);
+      const v = hf.getCellValue({ sheet: sheetId, row, col });
+      return (v && typeof v === 'object' && 'value' in v) ? v.value : v;
+    }
+    function setCell(a1, raw){
+      const sheetId = hf.getSheetId(ACTIVE_SHEET_NAME);
+      const {row,col} = a1ToRC(a1);
+      hf.setCellContents({ sheet: sheetId, row, col }, [[ raw ]]);
+    }
+    function setCellParsed(a1, raw){
+      setCell(a1, smartParse(raw));
+    }
+    function getRangeValues(sheetName, a1start, a1end){
+      const sheetId = hf.getSheetId(sheetName);
+      const rg = rangeA1ToRC(a1start, a1end);
+      const rows = [];
+      for (let r=rg.sRow; r<=rg.eRow; r++){
+        const row = [];
+        for (let c=rg.sCol; c<=rg.eCol; c++){
+          const val = hf.getCellValue({ sheet: sheetId, col: c, row: r });
+          row.push((val && typeof val === 'object' && 'value' in val) ? val.value : val);
+        }
+        rows.push(row);
+      }
+      return rows;
+    }
+
+    // IRR (Newton-Raphson) from U7:U27
+    function calcIRR(cashflows, guess=0.1){
+      const maxIter = 100, tol = 1e-7;
+      let r = guess;
+      for (let i=0;i<maxIter;i++){
+        let f=0, df=0;
+        for (let t=0;t<cashflows.length;t++){
+          const cf = Number(cashflows[t]) || 0;
+          const denom = Math.pow(1+r, t);
+          f += cf/denom;
+          if (denom !== 0) df += -t*cf/denom/(1+r);
+        }
+        const rNext = r - f/df;
+        if (!isFinite(rNext)) break;
+        if (Math.abs(rNext - r) < tol) return rNext;
+        r = rNext;
+      }
+      return r;
+    }
+
+    function buildTableHTML(matrix){
+      const cols = matrix[0]?.length || 0;
+      let html = '<table><colgroup>';
+      for (let c=0;c<cols;c++){ html += '<col style="width:'+ (Math.max(90, Math.floor(1200/cols))) +'px">'; }
+      html += '</colgroup><tbody>';
+      for (let r=0;r<matrix.length;r++){
+        html += '<tr>';
+        for (let c=0;c<cols;c++){
+          const v = matrix[r][c];
+          let out = "";
+          if (v==null || v==="") out = "";
+          else if (typeof v === 'number') out = fmtMoney(v);
+          else out = v;
+          const cls = (r===0 ? 'wrap' : '');
+          html += '<td class="'+cls+'">'+out+'</td>';
+        }
+        html += '</tr>';
+      }
+      html += '</tbody></table>'; 
+      return html;
+    }
+
+    async function loadWorkbookAndBoot(){
+      try{
+        // 1) Load model.xlsx
+        const res = await fetch('model.xlsx');
+        if (!res.ok) throw new Error('Could not load model.xlsx (HTTP '+res.status+')');
+        const ab = await res.arrayBuffer();
+
+        // 2) Parse with SheetJS (include formulas)
+        const wb = XLSX.read(ab, {type:'array', cellFormula:true});
+        const sheets = {};
+        wb.SheetNames.forEach(name => {
+          const ws = wb.Sheets[name];
+          // Convert to a dense 2D grid with formulas preserved (prefixed by '=')
+          const range = XLSX.utils.decode_range(ws['!ref'] || 'A1:A1');
+          const rows = [];
+          for (let R = range.s.r; R <= range.e.r; ++R) {
+            const row = [];
+            for (let C = range.s.c; C <= range.e.c; ++C) {
+              const addr = XLSX.utils.encode_cell({r:R,c:C});
+              const cell = ws[addr];
+              if (!cell) { row.push(null); continue; }
+              if (cell.f) {
+                row.push('=' + cell.f);
+              } else if (cell.v !== undefined && cell.v !== null) {
+                row.push(typeof cell.v === 'number' ? Number(cell.v) : String(cell.v));
+              } else {
+                row.push(null);
+              }
+            }
+            // trim trailing nulls
+            while (row.length && row[row.length-1] == null) row.pop();
+            rows.push(row);
+          }
+          // trim trailing empty rows
+          while (rows.length && rows[rows.length-1].every(v => v == null)) rows.pop();
+          sheets[name] = rows;
+        });
+
+        // 3) Build HyperFormula from sheets
+        hf = HyperFormula.HyperFormula.buildFromSheets(sheets, { licenseKey:'gpl-v3', useArrayArithmetic:true });
+
+        // Prefill inputs, render
+        g2El.value = getCell("G2") ?? "";
+        g3El.value = getCell("G3") ?? "";
+        g4El.value = getCell("G4") ?? "";
+        refreshAll();
+
+      } catch(err){
+        diag.textContent = 'Init error: ' + err.message;
+      }
+    }
+
+    function refreshAll(){
+      try {
+        // Compute IRR from U7:U27 and write to J29
+        const irrVals = getRangeValues(ACTIVE_SHEET_NAME, IRR_RANGE_START, IRR_RANGE_END).map(r => r[0]);
+        const irr = calcIRR(irrVals, 0.1);
+        setCell("J29", irr);
+
+        // KPIs
+        kpiIrr.textContent = fmtPct1(irr);
+        kpiJ29.textContent = fmtPct1(Number(getCell("J29")));
+        kpiG3.textContent  = fmtPct1(Number(getCell("G3")));
+
+        // Table B7:M34
+        const table = getRangeValues(ACTIVE_SHEET_NAME, OUTPUT_START, OUTPUT_END);
+        box.innerHTML = buildTableHTML(table);
+
+        // Diagnostics
+        const diagMsg = [
+          "G2="+getCell("G2"),
+          "G3="+getCell("G3"),
+          "G4="+getCell("G4"),
+          "J29="+getCell("J29")
+        ].join(" | ");
+        diag.textContent = diagMsg;
+      } catch(e){
+        diag.textContent = "Render error: " + e.message;
+      }
+    }
+
+    applyBtn.addEventListener('click', () => {
+      setCellParsed("G2", g2El.value);
+      setCellParsed("G3", g3El.value);
+      setCellParsed("G4", g4El.value);
+      refreshAll();
+    });
+    let timer=null;
+    [g2El,g3El,g4El].forEach(el => {
+      el.addEventListener('input', () => {
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => { applyBtn.click(); }, 600);
+      });
+    });
+
+    // Boot
+    loadWorkbookAndBoot();
+  </script>
+</body>
+</html>
