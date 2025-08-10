@@ -138,7 +138,14 @@
     }
 
     // Formatting
-    const fmtMoney = (x) => (x==null || isNaN(Number(x))) ? "" : ("$" + Math.round(Number(x)).toLocaleString());
+    const fmtMoney = (x) => {
+  if (x == null || isNaN(Number(x))) return "";
+  const num = Math.round(Number(x));
+  if (num < 0) {
+    return "(" + "$" + Math.abs(num).toLocaleString() + ")";
+  }
+  return "$" + num.toLocaleString();
+};
     const fmtPct1  = (x) => (x==null || isNaN(Number(x))) ? "" : ((Number(x)*100).toFixed(1) + "%");
 
     function smartParse(x){
@@ -284,7 +291,11 @@
 
         // KPIs
         kpiIrr.textContent = fmtPct1(irr);
-        kpiJ29.textContent = fmtPct1(Number(getCell("J29")));
+        kpiJ29.textContent = (Number(getCell("J29")) || 0).toLocaleString(undefined, {
+  style: 'percent',
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2
+});
         kpiG3.textContent  = fmtPct1(Number(getCell("G3")));
 
         // Table B7:M34
@@ -323,3 +334,4 @@
   </script>
 </body>
 </html>
+
